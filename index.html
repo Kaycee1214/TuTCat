@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 240px;
+      height: 260px;
+      background: transparent;
+      overflow: hidden;
+      -webkit-app-region: drag;
+      cursor: pointer;
+    }
+
+    #pet-container {
+      width: 240px;
+      height: 240px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #pet-image {
+      width: 240px;
+      height: 240px;
+      object-fit: contain;
+      image-rendering: pixelated;
+      transition: none;
+      -webkit-mask-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240"><rect width="240" height="240" fill="white"/></svg>');
+      mask-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240"><rect width="240" height="240" fill="white"/></svg>');
+    }
+
+    #pet-image.mirrored {
+      transform: scaleX(-1);
+    }
+
+    #context-menu {
+      display: none;
+      position: fixed;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+      padding: 8px 0;
+      min-width: 150px;
+      z-index: 10000;
+      -webkit-app-region: no-drag;
+    }
+
+    #context-menu.show {
+      display: block;
+    }
+
+    .menu-item {
+      padding: 10px 20px;
+      cursor: pointer;
+      font-size: 14px;
+      color: #333;
+      transition: background 0.2s;
+    }
+
+    .menu-item:hover {
+      background: rgba(255, 105, 180, 0.1);
+    }
+
+    .menu-item.danger {
+      color: #ff4444;
+    }
+
+    .menu-divider {
+      height: 1px;
+      background: rgba(0, 0, 0, 0.1);
+      margin: 4px 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="pet-container">
+    <img id="pet-image" src="" alt="">
+  </div>
+
+  <div id="context-menu">
+    <div class="menu-item" data-action="change-pose">换姿势</div>
+    <div class="menu-item" data-action="feed">喂食</div>
+    <div class="menu-item" data-action="play">玩耍</div>
+    <div class="menu-divider"></div>
+    <div class="menu-item" data-action="settings">设置</div>
+    <div class="menu-item danger" data-action="quit">退出</div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
