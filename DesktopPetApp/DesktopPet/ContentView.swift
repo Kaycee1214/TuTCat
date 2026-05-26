@@ -1,7 +1,6 @@
 import SwiftUI
 import AppKit
 import QuartzCore
-import Darwin
 
 // MARK: - 像素风气泡视图
 class BubbleView: NSView {
@@ -28,6 +27,7 @@ class BubbleWindow: NSWindow {
     private var hideTimer: Timer?
 
     var onTap: (() -> Void)?
+    var onHide: (() -> Void)?
 
     init() {
         let initialRect = NSRect(x: 0, y: 0, width: 100, height: 36)
@@ -136,6 +136,7 @@ class BubbleWindow: NSWindow {
         hideTimer = nil
         self.alphaValue = 0
         self.orderOut(nil)
+        onHide?()
     }
 
     private func resetHideTimer() {
@@ -150,6 +151,7 @@ class BubbleWindow: NSWindow {
 enum ChatTriggerType {
     case morning
     case lunch
+    case dinner
     case drink
     case rest
     case lieDown
@@ -238,6 +240,10 @@ class PetView: NSView {
         "好想变成一条咸鱼啊~",
         "你已经很努力了，该躺平了！"
     ]
+    private let dinnerMessages = [
+        "快去吃饭吧~秃秃会帮你看着电脑的！",
+        "一顿不吃饿得慌，秃秃现在很慌荒荒！"
+    ]
     private let idleMessages = [
         "提高时薪中……☺️",
         "上班总是很难熬~快点赚钱给秃秃买罐头！",
@@ -256,7 +262,10 @@ class PetView: NSView {
         "你在忙吗？不用理秃秃也行",
         "这个桌面秃秃巡逻了很多遍了",
         "喵~",
-        "好困啊，秃秃想睡觉了"
+        "好困啊，秃秃想睡觉了",
+        "秃秃刚刚在想，猫是不是不用上班🌝。",
+        "刚刚有一瞬间，秃秃以为你要下班了🐱~",
+        "让秃秃看看你在忙什么~"
     ]
 
     private var lastActivityTime = Date()
@@ -265,11 +274,14 @@ class PetView: NSView {
     private var currentChatMessages: [String] = []
     private var currentChatIndex = 0
     private var lastIdleTriggerTime: Date?
-    private var triggeredUptimeLevel: Int = 0
     private var lastTriggerDate: String = ""
     private var localActivityMonitor: Any?
-    private var lastRandomChatTime: Date?
     private var lastAnyChatTime: Date?
+    
+    // MARK: - 气泡队列
+    private var pendingTriggers: [ChatTriggerType] = []
+    private var isShowingChatBubble = false
+    private var processQueueTimer: Timer?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -341,8 +353,12 @@ class PetView: NSView {
         bubbleWindow?.onTap = { [weak self] in
             self?.cycleChatMessage()
         }
+        bubbleWindow?.onHide = { [weak self] in
+            self?.isShowingChatBubble = false
+            self?.processPendingQueue()
+        }
 
-        // 每30秒检查一次触发条件
+        // 每30秒检查一次触发条件，加入队列
         chatCheckTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             self?.checkChatTriggers()
         }
@@ -350,6 +366,11 @@ class PetView: NSView {
         // 延迟2秒后检查一次（等待窗口就位）
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
             self?.checkChatTriggers()
+        }
+
+        // 每5秒处理一次队列
+        processQueueTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            self?.processPendingQueue()
         }
 
         // 监听全局活动（应用不在前台时，keyDown需要Accessibility权限，故排除）
@@ -375,103 +396,98 @@ class PetView: NSView {
         let minute = calendar.component(.minute, from: now)
         let todayKey = dateKey(for: now)
 
-        print("[DesktopPet] 检查提醒触发 \(hour):\(minute), triggered=\(triggeredToday), uptimeLevel=\(triggeredUptimeLevel)")
+        print("[TuTCat] 检查提醒触发 \(hour):\(String(format: "%02d", minute)), pending=\(pendingTriggers.count)")
 
-        // 早安聊天 (9-11点)
+        // 1. 早安 (9-11点)
         if hour >= 9 && hour < 11 {
             if !triggeredToday.contains("morning-\(todayKey)") {
-                print("[DesktopPet] 触发早安提醒")
+                addToQueue(.morning)
                 triggeredToday.insert("morning-\(todayKey)")
-                showChat(type: .morning)
-                return
             }
         }
 
-        // 吃饭提醒 (11:25-11:30 窗口，避免恰好错过)
-        if hour == 11 && minute >= 25 && minute <= 30 {
+        // 2. 午餐 (11:25-11:35)
+        if hour == 11 && minute >= 25 && minute <= 35 {
             if !triggeredToday.contains("lunch-\(todayKey)") {
-                print("[DesktopPet] 触发午餐提醒")
+                addToQueue(.lunch)
                 triggeredToday.insert("lunch-\(todayKey)")
-                showChat(type: .lunch)
-                return
             }
         }
 
-        // 电脑使用时长提醒
-        let uptime = getSystemUptime()
-        let uptimeHours = uptime / 3600
-        let currentLevel: Int
-        if uptimeHours >= 3 {
-            currentLevel = 3
-        } else if uptimeHours >= 2 {
-            currentLevel = 2
-        } else if uptimeHours >= 1 {
-            currentLevel = 1
-        } else {
-            currentLevel = 0
-        }
-
-        print("[DesktopPet] uptime=\(String(format: "%.1f", uptimeHours))h, level=\(currentLevel), triggeredLevel=\(triggeredUptimeLevel)")
-
-        if currentLevel > triggeredUptimeLevel {
-            triggeredUptimeLevel = currentLevel
-            switch currentLevel {
-            case 1:
-                if !triggeredToday.contains("drink-\(todayKey)") {
-                    print("[DesktopPet] 触发喝水提醒")
-                    triggeredToday.insert("drink-\(todayKey)")
-                    showChat(type: .drink)
-                    return
-                }
-            case 2:
-                if !triggeredToday.contains("rest-\(todayKey)") {
-                    print("[DesktopPet] 触发休息提醒")
-                    triggeredToday.insert("rest-\(todayKey)")
-                    showChat(type: .rest)
-                    return
-                }
-            case 3:
-                if !triggeredToday.contains("lieDown-\(todayKey)") {
-                    print("[DesktopPet] 触发躺平提醒")
-                    triggeredToday.insert("lieDown-\(todayKey)")
-                    showChat(type: .lieDown)
-                    return
-                }
-            default:
-                break
+        // 3. 晚餐 (17:25-17:35)
+        if hour == 17 && minute >= 25 && minute <= 35 {
+            if !triggeredToday.contains("dinner-\(todayKey)") {
+                addToQueue(.dinner)
+                triggeredToday.insert("dinner-\(todayKey)")
             }
         }
 
-        // 无操作15分钟（每15分钟最多触发一次）
+        // 4. 喝水 (10:00-20:00，每30分钟)
+        if hour >= 10 && (hour < 20 || (hour == 20 && minute == 0)) {
+            let slotMinute = (minute / 30) * 30
+            let slotKey = "drink-\(hour):\(String(format: "%02d", slotMinute))-\(todayKey)"
+            if !triggeredToday.contains(slotKey) {
+                addToQueue(.drink)
+                triggeredToday.insert(slotKey)
+            }
+        }
+
+        // 5. 休息 (10:00-20:00，每2小时: 10,12,14,16,18,20)
+        if hour >= 10 && hour <= 20 && hour % 2 == 0 && minute < 30 {
+            let slotKey = "rest-\(hour):00-\(todayKey)"
+            if !triggeredToday.contains(slotKey) {
+                addToQueue(.rest)
+                triggeredToday.insert(slotKey)
+            }
+        }
+
+        // 6. 躺平 (10:00-19:00，每3小时: 10,13,16,19)
+        let lieDownHours = [10, 13, 16, 19]
+        if lieDownHours.contains(hour) && minute < 30 {
+            let slotKey = "liedown-\(hour):00-\(todayKey)"
+            if !triggeredToday.contains(slotKey) {
+                addToQueue(.lieDown)
+                triggeredToday.insert(slotKey)
+            }
+        }
+
+        // 7. 无操作15分钟（每15分钟最多触发一次）
         let idleTime = now.timeIntervalSince(lastActivityTime)
-        print("[DesktopPet] idleTime=\(String(format: "%.1f", idleTime/60))min")
+        print("[TuTCat] idleTime=\(String(format: "%.1f", idleTime/60))min")
         if idleTime >= 15 * 60 {
             if let lastIdle = lastIdleTriggerTime, now.timeIntervalSince(lastIdle) < 15 * 60 {
-                print("[DesktopPet] idle 15分钟内已触发过，跳过")
+                print("[TuTCat] idle 15分钟内已触发过，跳过")
             } else {
-                print("[DesktopPet] 触发无操作提醒")
+                print("[TuTCat] 触发无操作提醒")
+                addToQueue(.idle)
                 lastIdleTriggerTime = now
-                showChat(type: .idle)
-                return
             }
         }
 
-        // 随机闲聊触发（每5-10分钟随机触发一次，不播放动画，只显示气泡）
-        let minutesSinceLastChat: TimeInterval
-        if let lastChat = lastAnyChatTime {
-            minutesSinceLastChat = now.timeIntervalSince(lastChat) / 60
-        } else {
-            minutesSinceLastChat = 999
+        // 8. 随机闲聊 (每15分钟)
+        let slotMinute15 = (minute / 15) * 15
+        let randomSlotKey = "randomchat-\(hour):\(String(format: "%02d", slotMinute15))-\(todayKey)"
+        if !triggeredToday.contains(randomSlotKey) {
+            addToQueue(.randomChat)
+            triggeredToday.insert(randomSlotKey)
         }
-        if minutesSinceLastChat >= 5 {
-            // 5分钟后，每次检查有15%概率触发随机闲聊
-            let random = Double.random(in: 0...1)
-            if random < 0.15 {
-                print("[DesktopPet] 触发随机闲聊")
-                showChat(type: .randomChat)
-                return
-            }
+
+        // 尝试处理队列
+        processPendingQueue()
+    }
+
+    private func addToQueue(_ type: ChatTriggerType) {
+        if !pendingTriggers.contains(type) {
+            pendingTriggers.append(type)
+            print("[TuTCat] 加入队列: \(type)")
         }
+    }
+
+    private func processPendingQueue() {
+        guard !pendingTriggers.isEmpty, !isShowingChatBubble else { return }
+        let type = pendingTriggers.removeFirst()
+        print("[TuTCat] 队列弹出: \(type)")
+        showChat(type: type)
     }
 
     private func showChat(type: ChatTriggerType) {
@@ -484,6 +500,9 @@ class PetView: NSView {
             assets = eatAssets
         case .lunch:
             messages = lunchMessages
+            assets = nil
+        case .dinner:
+            messages = dinnerMessages
             assets = nil
         case .drink:
             messages = drinkMessages
@@ -505,8 +524,9 @@ class PetView: NSView {
         currentChatMessages = messages
         currentChatIndex = 0
         lastAnyChatTime = Date()
+        isShowingChatBubble = true
 
-        // 播放动画（随机闲聊不播放动画，保持走路）
+        // 播放动画（随机闲聊、午餐、晚餐不播放动画，保持走路）
         if let assets = assets, !assets.isEmpty {
             playAnimation(assets: assets, onComplete: { [weak self] in
                 self?.startWalking()
@@ -534,17 +554,6 @@ class PetView: NSView {
         bubbleWindow?.updatePosition(relativeTo: window)
     }
 
-    private func getSystemUptime() -> TimeInterval {
-        var mib = [CTL_KERN, KERN_BOOTTIME]
-        var bootTime = timeval()
-        var size = MemoryLayout<timeval>.size
-        guard sysctl(&mib, 2, &bootTime, &size, nil, 0) != -1 else {
-            return 0
-        }
-        let bootDate = Date(timeIntervalSince1970: TimeInterval(bootTime.tv_sec) + TimeInterval(bootTime.tv_usec) / 1_000_000)
-        return Date().timeIntervalSince(bootDate)
-    }
-
     private func dateKey(for date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
@@ -556,13 +565,11 @@ class PetView: NSView {
         let oldCount = triggeredToday.count
         triggeredToday = triggeredToday.filter { $0.hasSuffix(todayKey) }
         if triggeredToday.count < oldCount {
-            print("[DesktopPet] 清理旧触发记录: \(oldCount - triggeredToday.count) 条")
+            print("[TuTCat] 清理旧触发记录: \(oldCount - triggeredToday.count) 条")
         }
-        // 跨天重置 uptime 触发级别
         if lastTriggerDate != todayKey {
-            triggeredUptimeLevel = 0
             lastTriggerDate = todayKey
-            print("[DesktopPet] 新的一天，重置 uptime 触发级别")
+            print("[TuTCat] 新的一天，重置触发记录")
         }
     }
 
@@ -746,7 +753,7 @@ class PetView: NSView {
         if walkHealthCheckCounter >= 20 {
             walkHealthCheckCounter = 0
             if gifTimer == nil && !isPlayingAnimation && !isHovering && !walkAssets.isEmpty {
-                print("[DesktopPet] 检测到walk动画停止，自动恢复")
+                print("[TuTCat] 检测到walk动画停止，自动恢复")
                 loadImage(path: walkAssets[0], mirrored: walkDirection > 0)
             }
         }
@@ -942,7 +949,7 @@ class PetView: NSView {
         menu.addItem(NSMenuItem(title: "设置...", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem(title: "打开素材文件夹", action: #selector(openAssetsFolder), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "退出", action: #selector(quitApp), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "出门", action: #selector(quitApp), keyEquivalent: "q"))
 
         for item in menu.items {
             item.target = self
@@ -1041,6 +1048,7 @@ class PetView: NSView {
             NSEvent.removeMonitor(monitor)
         }
         chatCheckTimer?.invalidate()
+        processQueueTimer?.invalidate()
         bubbleWindow?.hide()
     }
 }
@@ -1082,6 +1090,12 @@ struct SettingsView: View {
             Button("打开素材文件夹") {
                 let assetsPath = Bundle.main.resourcePath ?? "" + "/Assets"
                 NSWorkspace.shared.open(URL(fileURLWithPath: assetsPath))
+            }
+
+            Divider()
+
+            Button("出门") {
+                NSApplication.shared.terminate(nil)
             }
 
             Spacer()
