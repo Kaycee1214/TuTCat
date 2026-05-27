@@ -61,9 +61,8 @@ AI Pet 会根据时间和状态主动出现。
 
 下载：https://github.com/Kaycee1214/TuTCat/releases/tag/v1.0.0
 
-- `TuTCat-v1.0.0.zip`
-
-安装后拖入 Applications 即可。
+下载后拖入 Applications，点击打开应用
+- 如弹窗提示 “安装包已损坏”，打开终端执行xattr -cr /Applications/TuTCat.app 然后再次点击应用，即可安装。
 
 ---
 
