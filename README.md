@@ -57,9 +57,9 @@ AI Pet 会根据时间和状态主动出现。
 
 前往 Releases 下载最新版：
 
-👉 [https://github.com/你的用户名/你的仓库/releases](https://github.com/Kaycee1214/TuTCat/releases/tag/v1.0.0)
+👉 
 
-下载：
+下载：https://github.com/Kaycee1214/TuTCat/releases/tag/v1.0.0
 
 - `TuTCat-v1.0.0.zip`
 
