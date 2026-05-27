@@ -273,6 +273,7 @@ class PetView: NSView {
     private var triggeredToday = Set<String>()
     private var currentChatMessages: [String] = []
     private var currentChatIndex = 0
+    private var lastChatIndex: Int?
     private var lastIdleTriggerTime: Date?
     private var lastTriggerDate: String = ""
     private var localActivityMonitor: Any?
@@ -522,7 +523,8 @@ class PetView: NSView {
         }
 
         currentChatMessages = messages
-        currentChatIndex = 0
+        currentChatIndex = randomChatIndex(for: messages)
+        lastChatIndex = currentChatIndex
         lastAnyChatTime = Date()
         isShowingChatBubble = true
 
@@ -545,8 +547,21 @@ class PetView: NSView {
 
     private func cycleChatMessage() {
         guard !currentChatMessages.isEmpty else { return }
-        currentChatIndex = (currentChatIndex + 1) % currentChatMessages.count
+        currentChatIndex = randomChatIndex(for: currentChatMessages)
+        lastChatIndex = currentChatIndex
         showBubble()
+    }
+
+    private func randomChatIndex(for messages: [String]) -> Int {
+        guard messages.count > 1 else { return 0 }
+        var newIndex = Int.random(in: 0..<messages.count)
+        // 避免连续两次展示同一条
+        if let last = lastChatIndex, messages.count > 1 {
+            while newIndex == last {
+                newIndex = Int.random(in: 0..<messages.count)
+            }
+        }
+        return newIndex
     }
 
     private func updateBubblePosition() {
